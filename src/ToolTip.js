@@ -1,10 +1,20 @@
-import React, { Component } from "react"
+import React from "react"
 import ReactDOM from 'react-dom'
 import PropTypes from "prop-types"
 
 import Card from "./Card"
 
 const portalNodes = {}
+
+const getReactDomClient = () => {
+  try {
+    // eslint-disable-next-line global-require
+    return require('react-dom/client')
+  }
+  catch (e) {
+    return null
+  }
+}
 
 export default class ToolTip extends React.Component {
   static propTypes = {
@@ -24,12 +34,22 @@ export default class ToolTip extends React.Component {
   }
 
   createPortal() {
-    portalNodes[this.props.group] = {
-      node: document.createElement('div'),
-      timeout: false
+    const node = document.createElement('div')
+    node.className = 'ToolTipPortal'
+    document.body.appendChild(node)
+
+    const portal = {
+      node,
+      timeout: false,
+      root: null,
     }
-    portalNodes[this.props.group].node.className = 'ToolTipPortal'
-    document.body.appendChild(portalNodes[this.props.group].node)
+
+    const ReactDOMClient = getReactDomClient()
+    if (ReactDOMClient && typeof ReactDOMClient.createRoot === 'function') {
+      portal.root = ReactDOMClient.createRoot(node)
+    }
+
+    portalNodes[this.props.group] = portal
   }
 
   renderPortal(props) {
@@ -38,7 +58,16 @@ export default class ToolTip extends React.Component {
     }
     let {parent, ...other} = props
     let parentEl = typeof parent === 'string' ? document.querySelector(parent) : parent
-    ReactDOM.render(<Card parentEl={parentEl} {...other}/>, portalNodes[this.props.group].node)
+
+    const portal = portalNodes[this.props.group]
+    const element = <Card parentEl={parentEl} {...other}/>
+
+    if (portal.root) {
+      portal.root.render(element)
+    }
+    else {
+      ReactDOM.render(element, portal.node)
+    }
   }
 
   componentDidMount() {
@@ -49,9 +78,10 @@ export default class ToolTip extends React.Component {
     this.renderPortal(this.props)
   }
 
-  componentWillReceiveProps(nextProps) {
+  componentDidUpdate(prevProps) {
+    const nextProps = this.props
     if ((!portalNodes[this.props.group] && !nextProps.active) ||
-      (!this.props.active && !nextProps.active)) {
+      (!prevProps.active && !nextProps.active)) {
       return
     }
 
@@ -62,12 +92,12 @@ export default class ToolTip extends React.Component {
       clearTimeout(portalNodes[this.props.group].timeout)
     }
 
-    if (this.props.active && !props.active) {
+    if (prevProps.active && !props.active) {
       newProps.active = true
       portalNodes[this.props.group].timeout = setTimeout(() => {
         props.active = false
         this.renderPortal(props)
-      }, this.props.tooltipTimeout)
+      }, nextProps.tooltipTimeout)
     }
 
     this.renderPortal(newProps)
@@ -75,11 +105,17 @@ export default class ToolTip extends React.Component {
 
   componentWillUnmount() {
     if (portalNodes[this.props.group]) {
-      ReactDOM.unmountComponentAtNode(portalNodes[this.props.group].node)
+      const portal = portalNodes[this.props.group]
+      if (portal.root) {
+        portal.root.unmount()
+      }
+      else {
+        ReactDOM.unmountComponentAtNode(portal.node)
+      }
       clearTimeout(portalNodes[this.props.group].timeout)
 
       try {
-        document.body.removeChild(portalNodes[this.props.group].node)
+        document.body.removeChild(portal.node)
       }
       catch(e) {}
 
